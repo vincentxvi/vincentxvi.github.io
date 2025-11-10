@@ -4,23 +4,21 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Najlepsze plaże Teneryfy — interaktywna mapa</title>
-  <!-- Prostsze i bardziej odporne ładowanie Leaflet: statyczne <link>/<script> + runtime fallback -->
-  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="anonymous" />
-  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin="anonymous" defer></script>
-
+  <!-- Wersja: Wikipedia-driven images (EN). Obrazy są pobierane runtime z REST API angielskiej Wikipedii. -->
   <style>
     html, body { height: 100%; margin: 0; }
     #map { height: 100vh; width: 100vw; }
     .legend { position: fixed; bottom: 20px; left: 20px; z-index: 9999; background: white; border: 1px solid #bbb; border-radius: 8px; padding: 10px 12px; font: 14px/1.4 system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
     .legend .row { display: flex; align-items: center; gap: 8px; margin: 4px 0; }
-    .popup img { width: 100%; height: auto; border-radius: 8px; display: block; margin: 6px 0 8px; }
+    .popup img { width: 100%; height: auto; border-radius: 8px; display: block; margin: 6px 0 8px; background:#f1f5f9; }
     .popup h4 { margin: 0 0 6px; font-size: 16px; }
     .popup p { margin: 4px 0; font-size: 13px; }
     .popup ul { margin: 0 0 8px 18px; padding: 0; font-size: 13px; }
     .btns { display: flex; gap: 8px; flex-wrap: wrap; }
     .btns a { text-decoration: none; padding: 6px 10px; border-radius: 6px; border: 1px solid #1a73e8; font-size: 13px; }
-    .btns a.commons { border-color: #0f766e; }
-    .error-hint { position:fixed;top:12px;left:12px;background:#fee;border:1px solid #fbb;border-radius:8px;padding:10px 12px;z-index:99999;font:14px system-ui }
+    .btns a.wiki { border-color: #0f766e; }
+    .diag { position: fixed; top: 12px; left: 12px; z-index: 10000; background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 8px; padding: 8px 10px; font: 12px/1.4 system-ui; color: #0f172a; box-shadow: 0 2px 8px rgba(0,0,0,0.06); }
+    .ok { color: #065f46; } .warn { color: #b45309; } .err { color: #991b1b; }
   </style>
 </head>
 <body>
@@ -31,35 +29,94 @@
     <div class="row">🟢 Sekretne/ukryte plaże</div>
     <div style="font-size:12px;color:#555;">Kliknij zdjęcie, aby otworzyć stronę pliku na Wikimedia Commons.</div>
   </div>
+  <div class="diag" id="diag">
+    <div><b>Status ładowania</b></div>
+    <div id="status-leaflet">Leaflet: <span class="warn">oczekiwanie…</span></div>
+    <div id="status-tiles">Kafelki OSM: <span class="warn">oczekiwanie…</span></div>
+    <div id="status-markers">Markery: <span class="warn">oczekiwanie…</span></div>
+  </div>
 
   <script>
   (async function bootstrap() {
-    // 1) Jeżeli z jakiegoś powodu Leaflet się nie załadował z unpkg, doładuj z fallbacków
-    function loadScript(src){return new Promise((res,rej)=>{const s=document.createElement('script');s.src=src;s.defer=true;s.onload=res;s.onerror=()=>rej(new Error('Nie udało się załadować '+src));document.head.appendChild(s);});}
-    function loadCss(href){return new Promise((res)=>{const l=document.createElement('link');l.rel='stylesheet';l.href=href;l.onload=res;l.onerror=res;document.head.appendChild(l);});}
+    const diag = {
+      leaflet: document.getElementById('status-leaflet'),
+      tiles: document.getElementById('status-tiles'),
+      markers: document.getElementById('status-markers'),
+      set(el, cls, msg){ el.innerHTML = `${el.firstChild ? el.firstChild.textContent : el.textContent} <span class="${cls}">${msg}</span>`; }
+    };
 
-    if(!window.L){
-      await loadCss('https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css');
-      try { await loadScript('https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js'); } catch(e){
-        await loadCss('https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.css');
-        await loadScript('https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js');
-      }
+    function setLeafletStatus(cls, msg){ diag.leaflet.innerHTML = `Leaflet: <span class="${cls}">${msg}</span>`; }
+    function setTilesStatus(cls, msg){ diag.tiles.innerHTML = `Kafelki OSM: <span class="${cls}">${msg}</span>`; }
+    function setMarkersStatus(cls, msg){ diag.markers.innerHTML = `Markery: <span class="${cls}">${msg}</span>`; }
+
+    const localCSS = '/vendor/leaflet/1.9.4/leaflet.css?v=1';
+    const localJS  = '/vendor/leaflet/1.9.4/leaflet.js?v=1';
+
+    const cdnCss = [
+      'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css',
+      'https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css',
+      'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.css'
+    ];
+    const cdnJs = [
+      'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js',
+      'https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js',
+      'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js'
+    ];
+
+    function loadCss(href){
+      return new Promise((resolve)=>{
+        const l = document.createElement('link');
+        l.rel = 'stylesheet'; l.href = href;
+        l.onload = () => resolve(true);
+        l.onerror = () => resolve(false);
+        document.head.appendChild(l);
+      });
+    }
+    function loadScript(src){
+      return new Promise((resolve)=>{
+        const s = document.createElement('script');
+        s.src = src; s.defer = true;
+        s.onload = () => resolve(true);
+        s.onerror = () => resolve(false);
+        document.head.appendChild(s);
+      });
     }
 
-    if(!window.L){
-      const hint=document.createElement('div');
-      hint.className='error-hint';
-      hint.innerHTML='<b>Nie udało się załadować Leaflet.</b><br>Odśwież stronę lub sprawdź blokady sieci/CDN.';
-      document.body.appendChild(hint);
+    async function loadLeaflet() {
+      // 1) próba lokalna
+      const okCssLocal = await loadCss(localCSS);
+      const okJsLocal  = await loadScript(localJS);
+      await new Promise(r => setTimeout(r, 100));
+      if (window.L) return 'local';
+      // 2) fallback po CDN-ach
+      for (let i=0; i<cdnCss.length; i++) {
+        await loadCss(cdnCss[i] + `?v=${Date.now()}`);
+        const ok = await loadScript(cdnJs[i] + `?v=${Date.now()}`);
+        await new Promise(r => setTimeout(r, 100));
+        if (window.L) return `cdn:${i}`;
+      }
+      return null;
+    }
+
+    const source = await loadLeaflet();
+    if (!source) {
+      setLeafletStatus('err', 'błąd — Leaflet nie został załadowany (lokalnie ani z CDN)');
       return;
+    } else {
+      setLeafletStatus('ok', `załadowano (${source})`);
     }
 
     try {
-      // 2) Inicjalizacja mapy
       const map = L.map('map', { zoomControl: true }).setView([28.30, -16.60], 10);
-      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '&copy; OpenStreetMap' }).addTo(map);
+      const tiles = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        maxZoom: 19,
+        attribution: '&copy; OpenStreetMap'
+      });
+      tiles.on('load', () => setTilesStatus('ok', 'OK'));
+      tiles.on('tileerror', () => setTilesStatus('err', 'błąd (kafelki niedostępne)'));
+      tiles.addTo(map);
 
-      // 3) Ikony markerów (bez AwesomeMarkers, 100% kompatybilne):
+      // Ikony PNG (brak AwesomeMarkers — 100% kompatybilność):
       const BlueIcon = new L.Icon({
         iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-blue.png',
         shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-shadow.png',
@@ -71,24 +128,39 @@
         iconSize: [25, 41], iconAnchor: [12, 41], popupAnchor: [1, -34], shadowSize: [41, 41]
       });
 
-      // 4) Dane plaż
       const TOP_BEACHES = [
-        { name: 'Playa de Las Teresitas', coords: [28.5079, -16.1870], img: 'https://upload.wikimedia.org/wikipedia/commons/1/1e/Playa_de_Las_Teresitas_2015.jpg', commons: 'Playa_de_Las_Teresitas_2015.jpg', access: 'Dojazd łatwy, 10–15 min od Santa Cruz. Autobus TITSA 910 (San Andrés).', parking: 'Duży, bezpłatny parking wzdłuż plaży; w weekendy tłoczno.', tips: ['Zwykle są ratownicy i prysznice.', 'Mało cienia – weź parasol/krem SPF.', 'Falochrony = spokojna woda dla rodzin.', 'W weekendy przyjedź wcześnie (miejsca się zapełniają).'] },
-        { name: 'Playa de la Tejita', coords: [28.0405, -16.5415], img: 'https://upload.wikimedia.org/wikipedia/commons/7/77/La_Tejita_beach_-_Montana_Roja_2.jpg', commons: 'La_Tejita_beach_-_Montana_Roja_2.jpg', access: 'Krótkie dojście z El Médano/Montańa Roja (5–10 min).', parking: 'Nieutwardzone place, bywa piaszczyście i wietrznie.', tips: ['Silny wiatr – świetna na kite/surf, mniej dla małych dzieci.', 'Brak stałego cienia i ograniczona infrastruktura.', 'Strefy naturystyczne bliżej Montaña Roja.', 'Uwaga na pył/piasek przy mocnym wietrze.'] },
-        { name: 'Playa de Benijo', coords: [28.5767, -16.1863], img: 'https://upload.wikimedia.org/wikipedia/commons/8/84/Benijo_Beach%2C_Tenerife%2C_Spain.jpg', commons: 'Benijo_Beach,_Tenerife,_Spain.jpg', access: 'Zjazd TF‑134, zejście stromą ścieżką/schodami.', parking: 'Niewiele miejsc przy drodze/restauracjach – przyjedź wcześnie.', tips: ['Brak falochronów i silny przybój – nie dla początkujących pływaków.', 'Sprawdź pływy – przy wysokiej wodzie plaża znika.', 'Najlepsze światło na zdjęcia: zachód słońca.', 'Weź wodę i przekąski – mało usług na samej plaży.'] },
-        { name: 'Playa de los Guíos (Los Gigantes)', coords: [28.2422, -16.8412], img: 'https://upload.wikimedia.org/wikipedia/commons/0/0a/Playa_de_los_Gu%C3%ADos%2C_Los_Gigantes%2C_Tenerife.jpg', commons: 'Playa_de_los_Guíos,_Los_Gigantes,_Tenerife.jpg', access: 'W centrum miasteczka, kilka minut od mariny.', parking: 'Parkingi płatne/uliczne; mało miejsc w sezonie.', tips: ['Miejsce szybko zanika przy przypływie – przyjdź rano.', 'Osłonięta zatoka, ale prąd może być odczuwalny.', 'Sklepy i bary w zasięgu krótkiego spaceru.', 'Dobre miejsce na rejsy pod klifami.'] }
+        { name: 'Playa de Las Teresitas', wiki: 'Playa_de_Las_Teresitas', coords: [28.5079, -16.1870], access: 'Easy access, 10–15 min from Santa Cruz. Bus TITSA 910 (San Andrés).', parking: 'Large free parking along the beach; busy on weekends.', tips: ['Lifeguards and showers usually present.', 'Little shade — bring umbrella/SPF.', 'Breakwaters = calm water for families.', 'Arrive early on weekends.'] },
+        { name: 'Playa de la Tejita', wiki: 'Montaña_Roja,_Tenerife', coords: [28.0405, -16.5415], access: 'Short walk from El Médano/Montaña Roja (5–10 min).', parking: 'Unpaved areas; windy and sandy.', tips: ['Strong wind — great for kite/surf, less for toddlers.', 'Limited infrastructure & no permanent shade.', 'Naturist zones closer to Montaña Roja.', 'Mind sand/dust on windy days.'] },
+        { name: 'Playa de Benijo', wiki: 'Taganana', coords: [28.5767, -16.1863], access: 'Drive TF‑134, descend via steep path/stairs.', parking: 'Few spots by the road/restaurants — come early.', tips: ['No breakwaters & strong surf — not for beginners.', 'Check tides — at high tide the beach shrinks.', 'Best light: sunset.', 'Bring water & snacks — few services on the beach.'] },
+        { name: 'Playa de los Guíos (Los Gigantes)', wiki: 'Los_Gigantes', coords: [28.2422, -16.8412], access: 'In town centre, a few minutes from the marina.', parking: 'Paid/street parking; scarce in high season.', tips: ['At high tide the sandy area is small — come early.', 'Sheltered cove but some current possible.', 'Shops & bars nearby.', 'Great spot for boat trips along the cliffs.'] }
       ];
 
       const SECRET_BEACHES = [
-        { name: 'Playa de Antequera', coords: [28.5655, -16.1350], img: 'https://upload.wikimedia.org/wikipedia/commons/5/5a/Playa_de_Antequera_Tenerife.jpg', commons: 'Playa_de_Antequera_Tenerife.jpg', access: 'Trekking z Anaga (długi, wymagający, ekspozycja) lub łódź z San Andrés (zależnie od morza).', parking: 'Parkuj w San Andrés (łódź) lub na początku szlaku (miejsca ograniczone).', tips: ['Sprawdź pływy i prognozę fal – odpływ daje więcej plaży.', 'Brak ratowników i infrastruktury – dziko.', 'Buty trekkingowe i zapas wody obowiązkowo.', 'Słońce szybko „praży” – kapelusz/parasolka mile widziane.'] },
-        { name: 'Playa Diego Hernández (La Caleta)', coords: [28.1098, -16.7595], img: 'https://upload.wikimedia.org/wikipedia/commons/6/68/Playa_Diego_Hernandez_Tenerife.jpg', commons: 'Playa_Diego_Hernandez_Tenerife.jpg', access: 'Ścieżka z La Caleta ok. 15–20 min; miejscami skarpa/kamienie.', parking: 'Uliczne miejsca w La Caleta; w weekendy brak szybko.', tips: ['Bywa tymczasowo zamykana przy dużym zafalowaniu/pracach – sprawdź na miejscu.', 'Brak udogodnień; weź wodę i worek na śmieci.', 'Pod stopami kamienie – przydadzą się buty do wody.', 'Zachowaj ostrożność przy przypływie (mniej piasku).'] },
-        { name: 'Playa de Abama', coords: [28.1408, -16.8072], img: 'https://upload.wikimedia.org/wikipedia/commons/2/2d/Playa_de_Abama%2C_Tenerife.jpg', commons: 'Playa_de_Abama,_Tenerife.jpg', access: 'Przez kompleks Abama; zejście ścieżką lub winda (nie zawsze działa).', parking: 'Miejsca wzdłuż drogi do hotelu i zatoczki; szybko się zapełniają.', tips: ['Osłonięta zatoka – dobra dla dzieci.', 'W sezonie tłoczno; przyjdź wcześniej.', 'Możliwe fale przy wietrze z południa – miej oko na dzieci.', 'Kawiarnia i toalety zwykle dostępne wyżej przy windzie.'] }
+        { name: 'Playa de Antequera', wiki: 'Anaga_Rural_Park', coords: [28.5655, -16.1350], access: 'Long demanding hike from Anaga or boat from San Andrés (sea permitting).', parking: 'Park at San Andrés (boat) or at the trailhead (limited).', tips: ['Check tides & swell — more sand at low tide.', 'No lifeguards/infrastructure — wild.', 'Hiking shoes & water a must.', 'Sun can be harsh — hat/umbrella advised.'] },
+        { name: 'Playa Diego Hernández (La Caleta)', wiki: 'La_Caleta,_Adeje', coords: [28.1098, -16.7595], access: '15–20 min coastal path from La Caleta; rocky/eroded sections.', parking: 'Street parking in La Caleta; fills up fast on weekends.', tips: ['Occasionally closed during heavy swell/works — check on site.', 'No facilities; bring water and a trash bag.', 'Rocky seabed — water shoes help.', 'Watch for rising tide (less sand).'] },
+        { name: 'Playa de Abama', wiki: 'Guía_de_Isora', coords: [28.1408, -16.8072], access: 'Through the Abama complex; footpath or elevator (not always operating).', parking: 'Along the access road and lay-bys; limited.', tips: ['Sheltered cove — good for kids.', 'Crowded in season — arrive early.', 'South wind can bring small waves — watch kids.', 'Cafe & toilets usually up by the elevator.'] }
       ];
 
       function gmapsLink([lat, lon]) { return `https://www.google.com/maps/search/?api=1&query=${lat},${lon}`; }
       function commonsPage(fileName) { return `https://commons.wikimedia.org/wiki/File:${encodeURIComponent(fileName)}`; }
-      function buildPopupHTML(b) {
+      function buildPopupHTML(b, imgSrc) {
         const tips = (b.tips || []).map(t => `<li>${t}</li>`).join('');
+        const wikiUrl = `https://en.wikipedia.org/wiki/${encodeURIComponent(b.wiki)}`;
+        const imgHtml = imgSrc ? `<img src="${imgSrc}" alt="${b.name}" loading="eager">` : `<div style="height:180px;border-radius:8px;background:#e2e8f0;display:flex;align-items:center;justify-content:center;">No image</div>`;
+        return `
+          <div class="popup" style="width:320px;">
+            <h4>${b.name}</h4>
+            <a href="${wikiUrl}" target="_blank" rel="noopener">${imgHtml}</a>
+            <p><b>Access:</b> ${b.access}</p>
+            <p><b>Parking:</b> ${b.parking}</p>
+            <p><b>Key tips:</b></p>
+            <ul>${tips}</ul>
+            <div class="btns">
+              <a class="wiki" href="${wikiUrl}" target="_blank" rel="noopener">Wikipedia (EN)</a>
+              <a href="https://www.google.com/maps/search/?api=1&query=${b.coords[0]},${b.coords[1]}" target="_blank" rel="noopener">Open in Google Maps</a>
+            </div>
+          </div>`;
+      }</li>`).join('');
         return `
           <div class="popup" style="width:320px;">
             <h4>${b.name}</h4>
@@ -112,26 +184,37 @@
       TOP_BEACHES.forEach(b => L.marker(b.coords, { icon: BlueIcon }).bindPopup(buildPopupHTML(b)).addTo(topLayer));
       SECRET_BEACHES.forEach(b => L.marker(b.coords, { icon: GreenIcon }).bindPopup(buildPopupHTML(b)).addTo(secretLayer));
 
+      // Preload Wikipedia images via REST API (EN)
+      async function fetchWikiImage(title) {
+        try {
+          const resp = await fetch(`https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(title)}`);
+          if (!resp.ok) return null;
+          const data = await resp.json();
+          return (data.originalimage && data.originalimage.source) || (data.thumbnail && data.thumbnail.source) || null;
+        } catch { return null; }
+      }
+
+      // Fetch images for all and then render markers
+      const all = [...TOP_BEACHES, ...SECRET_BEACHES];
+      const imgCache = {};
+      await Promise.all(all.map(async (b) => { imgCache[b.name] = await fetchWikiImage(b.wiki); }));
+
+      TOP_BEACHES.forEach(b => L.marker(b.coords, { icon: BlueIcon }).bindPopup(buildPopupHTML(b, imgCache[b.name])).addTo(topLayer));
+      SECRET_BEACHES.forEach(b => L.marker(b.coords, { icon: GreenIcon }).bindPopup(buildPopupHTML(b, imgCache[b.name])).addTo(secretLayer));
+
       topLayer.addTo(map);
       secretLayer.addTo(map);
 
       L.control.layers(null, { 'Top plaże (klasyki)': topLayer, 'Sekretne/ukryte plaże': secretLayer }, { collapsed: false }).addTo(map);
 
-      const allCoords = [...TOP_BEACHES, ...SECRET_BEACHES].map(b => b.coords);
+      const allCoords = all.map(b => b.coords);
       const bounds = L.latLngBounds(allCoords);
       map.fitBounds(bounds, { padding: [30, 30] });
 
-      // Proste testy w konsoli
-      console.assert(map instanceof L.Map, 'Instancja mapy powinna być L.Map');
-      console.assert(topLayer.getLayers().length === TOP_BEACHES.length, 'Warstwa top powinna mieć wszystkie znaczniki');
-      console.assert(secretLayer.getLayers().length === SECRET_BEACHES.length, 'Warstwa secret powinna mieć wszystkie znaczniki');
-      console.log('Mapa gotowa ✔️');
+      setMarkersStatus('ok', 'OK');
     } catch (err) {
       console.error('Błąd inicjalizacji mapy:', err);
-      const hint=document.createElement('div');
-      hint.className='error-hint';
-      hint.innerHTML='<b>Nie udało się zainicjować mapy.</b><br>Sprawdź, czy przeglądarka nie blokuje skryptów z CDN (unpkg/jsDelivr/cdnjs).';
-      document.body.appendChild(hint);
+      setMarkersStatus('err', 'błąd inicjalizacji');
     }
   })();
   </script>
