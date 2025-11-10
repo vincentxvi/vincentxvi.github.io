@@ -4,35 +4,18 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Najlepsze plaże Teneryfy — interaktywna mapa</title>
-  
-  <!-- Leaflet core -->
-  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""/>
-  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-o9N1j7kP+UjQpQ9M/dwZ0pniS3pS3kG3s3Gx+4MxAQM=" crossorigin=""></script>
-
-  <!-- Font Awesome (ikony) -->
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" integrity="sha512-DTOQO9RWCH3ppGqcWaEA1BIZOC6xxalwEsw9c2QQeAIftl+Vegovlnee1c9QX4TctnWMn13TZye+giMm8e2LwA==" crossorigin="anonymous" referrerpolicy="no-referrer" />
-  
-  <!-- Leaflet.AwesomeMarkers (kolorowe znaczniki z ikonami) -->
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/Leaflet.awesome-markers/2.0.4/leaflet.awesome-markers.css" integrity="sha512-9fY+fQp8Zf7N9pG9rwv6Zg+ZRX3wJp0NVkQXb0lA0a8C2f9v2rXoJxT2a2r2S9bO2bJ8j7fV5h0mQM3yWc9b8w==" crossorigin="anonymous" referrerpolicy="no-referrer" />
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/Leaflet.awesome-markers/2.0.4/leaflet.awesome-markers.js" integrity="sha512-qT9y0lQ4rRfsLQ4m3dR6s0xw0Q7Qf9ZQ3g3oVj8i9m6p2pQk8x0oRZp2p2sFQ3a7y0gV6y0nYbJjXcS3o2lZ0g==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self' https: data: blob:; img-src 'self' https: data: blob:; style-src 'self' 'unsafe-inline' https:; script-src 'self' 'unsafe-inline' https:; connect-src https:; font-src https: data:;"/>
 
   <style>
     html, body { height: 100%; margin: 0; }
     #map { height: 100vh; width: 100vw; }
     .legend {
-      position: fixed;
-      bottom: 20px;
-      left: 20px;
-      z-index: 9999;
-      background: white;
-      border: 1px solid #bbb;
-      border-radius: 8px;
-      padding: 10px 12px;
-      font: 14px/1.4 system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji";
+      position: fixed; bottom: 20px; left: 20px; z-index: 9999;
+      background: white; border: 1px solid #bbb; border-radius: 8px;
+      padding: 10px 12px; font: 14px/1.4 system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
       box-shadow: 0 2px 8px rgba(0,0,0,0.1);
     }
     .legend .row { display: flex; align-items: center; gap: 8px; margin: 4px 0; }
-    .legend .swatch { width: 14px; height: 22px; background-size: cover; }
     .popup img { width: 100%; height: auto; border-radius: 8px; display: block; margin: 6px 0 8px; }
     .popup h4 { margin: 0 0 6px; font-size: 16px; }
     .popup p { margin: 4px 0; font-size: 13px; }
@@ -43,199 +26,162 @@
   </style>
 </head>
 <body>
-  <div id="map"></div>
-  <div class="legend">
+  <div id="map" role="region" aria-label="Mapa najlepszych plaż Teneryfy"></div>
+  <div class="legend" aria-live="polite">
     <div><b>Legenda</b></div>
-    <div class="row"><i class="fa-solid fa-umbrella"></i> Top plaże (klasyki)</div>
-    <div class="row"><i class="fa-solid fa-star"></i> Sekretne/ukryte plaże</div>
+    <div class="row"><span class="fa-solid fa-umbrella"></span> Top plaże (klasyki)</div>
+    <div class="row"><span class="fa-solid fa-star"></span> Sekretne/ukryte plaże</div>
     <div style="font-size:12px;color:#555;">Kliknij zdjęcie, aby otworzyć stronę pliku na Wikimedia Commons.</div>
   </div>
 
   <script>
-    // Inicjalizacja mapy
-    const map = L.map('map', {
-      zoomControl: true
-    }).setView([28.30, -16.60], 10);
+  (async function bootstrap() {
+    // -------- Robust loader with multi-CDN fallbacks --------
+    const CDN = {
+      leafletCss: [
+        'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css',
+        'https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css',
+        'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.css'
+      ],
+      leafletJs: [
+        'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js',
+        'https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js',
+        'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js'
+      ],
+      faCss: [
+        'https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css',
+        'https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.5.0/css/all.min.css'
+      ],
+      awesomeMarkersCss: [
+        'https://cdnjs.cloudflare.com/ajax/libs/Leaflet.awesome-markers/2.0.4/leaflet.awesome-markers.css'
+      ],
+      awesomeMarkersJs: [
+        'https://cdnjs.cloudflare.com/ajax/libs/Leaflet.awesome-markers/2.0.4/leaflet.awesome-markers.js'
+      ]
+    };
 
-    // Warstwa kafelkowa (lekka i czytelna)
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      maxZoom: 19,
-      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
-    }).addTo(map);
+    function loadStylesheetSequential(urls) {
+      return new Promise((resolve) => {
+        const tryNext = (i) => {
+          if (i >= urls.length) return resolve();
+          const link = document.createElement('link');
+          link.rel = 'stylesheet';
+          link.href = urls[i];
+          link.onload = () => resolve();
+          link.onerror = () => tryNext(i + 1);
+          document.head.appendChild(link);
+        };
+        tryNext(0);
+      });
+    }
 
-    // Ikony: niebieska parasolka (top) i zielona gwiazdka (sekretne)
-    const topIcon = L.AwesomeMarkers.icon({
-      icon: 'umbrella-beach', // z FA6
-      prefix: 'fa',
-      markerColor: 'blue'
-    });
-    const secretIcon = L.AwesomeMarkers.icon({
-      icon: 'star',
-      prefix: 'fa',
-      markerColor: 'green'
-    });
+    function loadScriptSequential(urls) {
+      return new Promise((resolve, reject) => {
+        const tryNext = (i) => {
+          if (i >= urls.length) return reject(new Error('Nie udało się załadować skryptu z żadnego CDN.'));
+          const s = document.createElement('script');
+          s.src = urls[i];
+          s.async = false; // zachowaj kolejność
+          s.onload = () => resolve();
+          s.onerror = () => {
+            console.warn('Błąd ładowania:', urls[i]);
+            tryNext(i + 1);
+          };
+          document.head.appendChild(s);
+        };
+        tryNext(0);
+      });
+    }
 
-    // Dane plaż
-    const TOP_BEACHES = [
-      {
-        name: 'Playa de Las Teresitas',
-        coords: [28.5079, -16.1870],
-        img: 'https://upload.wikimedia.org/wikipedia/commons/1/1e/Playa_de_Las_Teresitas_2015.jpg',
-        commons: 'Playa_de_Las_Teresitas_2015.jpg',
-        access: 'Dojazd łatwy, 10–15 min od Santa Cruz. Autobus TITSA 910 (San Andrés).',
-        parking: 'Duży, bezpłatny parking wzdłuż plaży; w weekendy tłoczno.',
-        tips: [
-          'Zwykle są ratownicy i prysznice.',
-          'Mało cienia – weź parasol/krem SPF.',
-          'Falochrony = spokojna woda dla rodzin.',
-          'W weekendy przyjedź wcześnie (miejsca się zapełniają).'
-        ]
-      },
-      {
-        name: 'Playa de la Tejita',
-        coords: [28.0405, -16.5415],
-        img: 'https://upload.wikimedia.org/wikipedia/commons/7/77/La_Tejita_beach_-_Montana_Roja_2.jpg',
-        commons: 'La_Tejita_beach_-_Montana_Roja_2.jpg',
-        access: 'Krótkie dojście z El Médano/Montańa Roja (5–10 min).',
-        parking: 'Nieutwardzone place, bywa piaszczyście i wietrznie.',
-        tips: [
-          'Silny wiatr – świetna na kite/surf, mniej dla małych dzieci.',
-          'Brak stałego cienia i ograniczona infrastruktura.',
-          'Strefy naturystyczne bliżej Montaña Roja.',
-          'Uwaga na pył/piasek przy mocnym wietrze.'
-        ]
-      },
-      {
-        name: 'Playa de Benijo',
-        coords: [28.5767, -16.1863],
-        img: 'https://upload.wikimedia.org/wikipedia/commons/8/84/Benijo_Beach%2C_Tenerife%2C_Spain.jpg',
-        commons: 'Benijo_Beach,_Tenerife,_Spain.jpg',
-        access: 'Zjazd TF‑134, zejście stromą ścieżką/schodami.',
-        parking: 'Niewiele miejsc przy drodze/restauracjach – przyjedź wcześnie.',
-        tips: [
-          'Brak falochronów i silny przybój – nie dla początkujących pływaków.',
-          'Sprawdź pływy – przy wysokiej wodzie plaża znika.',
-          'Najlepsze światło na zdjęcia: zachód słońca.',
-          'Weź wodę i przekąski – mało usług na samej plaży.'
-        ]
-      },
-      {
-        name: 'Playa de los Guíos (Los Gigantes)',
-        coords: [28.2422, -16.8412],
-        img: 'https://upload.wikimedia.org/wikipedia/commons/0/0a/Playa_de_los_Gu%C3%ADos%2C_Los_Gigantes%2C_Tenerife.jpg',
-        commons: 'Playa_de_los_Guíos,_Los_Gigantes,_Tenerife.jpg',
-        access: 'W centrum miasteczka, kilka minut od mariny.',
-        parking: 'Parkingi płatne/uliczne; mało miejsc w sezonie.',
-        tips: [
-          'Miejsce szybko zanika przy przypływie – przyjdź rano.',
-          'Osłonięta zatoka, ale prąd może być odczuwalny.',
-          'Sklepy i bary w zasięgu krótkiego spaceru.',
-          'Dobre miejsce na rejsy pod klifami.'
-        ]
+    try {
+      // 1) CSS: Leaflet + Font Awesome + AwesomeMarkers
+      await loadStylesheetSequential(CDN.leafletCss);
+      await loadStylesheetSequential(CDN.faCss);
+      await loadStylesheetSequential(CDN.awesomeMarkersCss);
+
+      // 2) JS: Leaflet -> AwesomeMarkers (zachowaj kolejność)
+      await loadScriptSequential(CDN.leafletJs);
+      if (!window.L) throw new Error('Leaflet nie został załadowany — L jest undefined');
+      await loadScriptSequential(CDN.awesomeMarkersJs);
+
+      // --------- TESTY (proste asercje w konsoli) ---------
+      console.assert(typeof L === 'object', 'Leaflet L powinno być obiektem');
+      console.assert(typeof L.map === 'function', 'L.map powinno być funkcją');
+
+      // --------- Inicjalizacja mapy ---------
+      const map = L.map('map', { zoomControl: true }).setView([28.30, -16.60], 10);
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        maxZoom: 19,
+        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+      }).addTo(map);
+
+      // Ikony
+      const topIcon = L.AwesomeMarkers.icon({ icon: 'umbrella-beach', prefix: 'fa', markerColor: 'blue' });
+      const secretIcon = L.AwesomeMarkers.icon({ icon: 'star', prefix: 'fa', markerColor: 'green' });
+
+      // Dane plaż
+      const TOP_BEACHES = [
+        { name: 'Playa de Las Teresitas', coords: [28.5079, -16.1870], img: 'https://upload.wikimedia.org/wikipedia/commons/1/1e/Playa_de_Las_Teresitas_2015.jpg', commons: 'Playa_de_Las_Teresitas_2015.jpg', access: 'Dojazd łatwy, 10–15 min od Santa Cruz. Autobus TITSA 910 (San Andrés).', parking: 'Duży, bezpłatny parking wzdłuż plaży; w weekendy tłoczno.', tips: ['Zwykle są ratownicy i prysznice.', 'Mało cienia – weź parasol/krem SPF.', 'Falochrony = spokojna woda dla rodzin.', 'W weekendy przyjedź wcześnie (miejsca się zapełniają).'] },
+        { name: 'Playa de la Tejita', coords: [28.0405, -16.5415], img: 'https://upload.wikimedia.org/wikipedia/commons/7/77/La_Tejita_beach_-_Montana_Roja_2.jpg', commons: 'La_Tejita_beach_-_Montana_Roja_2.jpg', access: 'Krótkie dojście z El Médano/Montańa Roja (5–10 min).', parking: 'Nieutwardzone place, bywa piaszczyście i wietrznie.', tips: ['Silny wiatr – świetna na kite/surf, mniej dla małych dzieci.', 'Brak stałego cienia i ograniczona infrastruktura.', 'Strefy naturystyczne bliżej Montaña Roja.', 'Uwaga na pył/piasek przy mocnym wietrze.'] },
+        { name: 'Playa de Benijo', coords: [28.5767, -16.1863], img: 'https://upload.wikimedia.org/wikipedia/commons/8/84/Benijo_Beach%2C_Tenerife%2C_Spain.jpg', commons: 'Benijo_Beach,_Tenerife,_Spain.jpg', access: 'Zjazd TF‑134, zejście stromą ścieżką/schodami.', parking: 'Niewiele miejsc przy drodze/restauracjach – przyjedź wcześnie.', tips: ['Brak falochronów i silny przybój – nie dla początkujących pływaków.', 'Sprawdź pływy – przy wysokiej wodzie plaża znika.', 'Najlepsze światło na zdjęcia: zachód słońca.', 'Weź wodę i przekąski – mało usług na samej plaży.'] },
+        { name: 'Playa de los Guíos (Los Gigantes)', coords: [28.2422, -16.8412], img: 'https://upload.wikimedia.org/wikipedia/commons/0/0a/Playa_de_los_Gu%C3%ADos%2C_Los_Gigantes%2C_Tenerife.jpg', commons: 'Playa_de_los_Guíos,_Los_Gigantes,_Tenerife.jpg', access: 'W centrum miasteczka, kilka minut od mariny.', parking: 'Parkingi płatne/uliczne; mało miejsc w sezonie.', tips: ['Miejsce szybko zanika przy przypływie – przyjdź rano.', 'Osłonięta zatoka, ale prąd może być odczuwalny.', 'Sklepy i bary w zasięgu krótkiego spaceru.', 'Dobre miejsce na rejsy pod klifami.'] }
+      ];
+
+      const SECRET_BEACHES = [
+        { name: 'Playa de Antequera', coords: [28.5655, -16.1350], img: 'https://upload.wikimedia.org/wikipedia/commons/5/5a/Playa_de_Antequera_Tenerife.jpg', commons: 'Playa_de_Antequera_Tenerife.jpg', access: 'Trekking z Anaga (długi, wymagający, ekspozycja) lub łódź z San Andrés (zależnie od morza).', parking: 'Parkuj w San Andrés (łódź) lub na początku szlaku (miejsca ograniczone).', tips: ['Sprawdź pływy i prognozę fal – odpływ daje więcej plaży.', 'Brak ratowników i infrastruktury – dziko.', 'Buty trekkingowe i zapas wody obowiązkowo.', 'Słońce szybko „praży” – kapelusz/parasolka mile widziane.'] },
+        { name: 'Playa Diego Hernández (La Caleta)', coords: [28.1098, -16.7595], img: 'https://upload.wikimedia.org/wikipedia/commons/6/68/Playa_Diego_Hernandez_Tenerife.jpg', commons: 'Playa_Diego_Hernandez_Tenerife.jpg', access: 'Ścieżka z La Caleta ok. 15–20 min; miejscami skarpa/kamienie.', parking: 'Uliczne miejsca w La Caleta; w weekendy brak szybko.', tips: ['Bywa tymczasowo zamykana przy dużym zafalowaniu/pracach – sprawdź na miejscu.', 'Brak udogodnień; weź wodę i worek na śmieci.', 'Pod stopami kamienie – przydadzą się buty do wody.', 'Zachowaj ostrożność przy przypływie (mniej piasku).'] },
+        { name: 'Playa de Abama', coords: [28.1408, -16.8072], img: 'https://upload.wikimedia.org/wikipedia/commons/2/2d/Playa_de_Abama%2C_Tenerife.jpg', commons: 'Playa_de_Abama,_Tenerife.jpg', access: 'Przez kompleks Abama; zejście ścieżką lub winda (nie zawsze działa).', parking: 'Miejsca wzdłuż drogi do hotelu i zatoczki; szybko się zapełniają.', tips: ['Osłonięta zatoka – dobra dla dzieci.', 'W sezonie tłoczno; przyjdź wcześniej.', 'Możliwe fale przy wietrze z południa – miej oko na dzieci.', 'Kawiarnia i toalety zwykle dostępne wyżej przy windzie.'] }
+      ];
+
+      function gmapsLink([lat, lon]) { return `https://www.google.com/maps/search/?api=1&query=${lat},${lon}`; }
+      function commonsPage(fileName) { return `https://commons.wikimedia.org/wiki/File:${encodeURIComponent(fileName)}`; }
+      function buildPopupHTML(b) {
+        const tips = (b.tips || []).map(t => `<li>${t}</li>`).join('');
+        return `
+          <div class="popup" style="width:320px;">
+            <h4>${b.name}</h4>
+            <a href="${commonsPage(b.commons)}" target="_blank" rel="noopener">
+              <img src="${b.img}" alt="${b.name}" referrerpolicy="no-referrer" loading="eager">
+            </a>
+            <p><b>Dojazd / dojście:</b> ${b.access}</p>
+            <p><b>Parking:</b> ${b.parking}</p>
+            <p><b>Ważne wskazówki:</b></p>
+            <ul>${tips}</ul>
+            <div class="btns">
+              <a class="commons" href="${commonsPage(b.commons)}" target="_blank" rel="noopener">Strona zdjęcia (Wikimedia)</a>
+              <a href="${gmapsLink(b.coords)}" target="_blank" rel="noopener">Nawiguj w Google Maps</a>
+            </div>
+          </div>`;
       }
-    ];
 
-    const SECRET_BEACHES = [
-      {
-        name: 'Playa de Antequera',
-        coords: [28.5655, -16.1350],
-        img: 'https://upload.wikimedia.org/wikipedia/commons/5/5a/Playa_de_Antequera_Tenerife.jpg',
-        commons: 'Playa_de_Antequera_Tenerife.jpg',
-        access: 'Trekking z Anaga (długi, wymagający, ekspozycja) lub łódź z San Andrés (zależnie od morza).',
-        parking: 'Parkuj w San Andrés (łódź) lub na początku szlaku (miejsca ograniczone).',
-        tips: [
-          'Sprawdź pływy i prognozę fal – odpływ daje więcej plaży.',
-          'Brak ratowników i infrastruktury – dziko.',
-          'Buty trekkingowe i zapas wody obowiązkowo.',
-          'Słońce szybko „praży” – kapelusz/parasolka mile widziane.'
-        ]
-      },
-      {
-        name: 'Playa Diego Hernández (La Caleta)',
-        coords: [28.1098, -16.7595],
-        img: 'https://upload.wikimedia.org/wikipedia/commons/6/68/Playa_Diego_Hernandez_Tenerife.jpg',
-        commons: 'Playa_Diego_Hernandez_Tenerife.jpg',
-        access: 'Ścieżka z La Caleta ok. 15–20 min; miejscami skarpa/kamienie.',
-        parking: 'Uliczne miejsca w La Caleta; w weekendy brak szybko.',
-        tips: [
-          'Bywa tymczasowo zamykana przy dużym zafalowaniu/pracach – sprawdź na miejscu.',
-          'Brak udogodnień; weź wodę i worek na śmieci.',
-          'Pod stopami kamienie – przydadzą się buty do wody.',
-          'Zachowaj ostrożność przy przypływie (mniej piasku).'
-        ]
-      },
-      {
-        name: 'Playa de Abama',
-        coords: [28.1408, -16.8072],
-        img: 'https://upload.wikimedia.org/wikipedia/commons/2/2d/Playa_de_Abama%2C_Tenerife.jpg',
-        commons: 'Playa_de_Abama,_Tenerife.jpg',
-        access: 'Przez kompleks Abama; zejście ścieżką lub winda (nie zawsze działa).',
-        parking: 'Miejsca wzdłuż drogi do hotelu i zatoczki; szybko się zapełniają.',
-        tips: [
-          'Osłonięta zatoka – dobra dla dzieci.',
-          'W sezonie tłoczno; przyjdź wcześniej.',
-          'Możliwe fale przy wietrze z południa – miej oko na dzieci.',
-          'Kawiarnia i toalety zwykle dostępne wyżej przy windzie.'
-        ]
-      }
-    ];
+      const topLayer = L.layerGroup();
+      const secretLayer = L.layerGroup();
 
-    // Helpery
-    function gmapsLink([lat, lon]) {
-      return `https://www.google.com/maps/search/?api=1&query=${lat},${lon}`;
+      TOP_BEACHES.forEach(b => L.marker(b.coords, { icon: topIcon }).bindPopup(buildPopupHTML(b)).addTo(topLayer));
+      SECRET_BEACHES.forEach(b => L.marker(b.coords, { icon: secretIcon }).bindPopup(buildPopupHTML(b)).addTo(secretLayer));
+
+      topLayer.addTo(map);
+      secretLayer.addTo(map);
+
+      L.control.layers(null, { 'Top plaże (klasyki)': topLayer, 'Sekretne/ukryte plaże': secretLayer }, { collapsed: false }).addTo(map);
+
+      const allCoords = [...TOP_BEACHES, ...SECRET_BEACHES].map(b => b.coords);
+      const bounds = L.latLngBounds(allCoords);
+      map.fitBounds(bounds, { padding: [30, 30] });
+
+      // --------- Proste testy E2E (logi) ---------
+      console.assert(map instanceof L.Map, 'Instancja mapy powinna być L.Map');
+      console.assert(typeof topLayer.getLayers === 'function' && topLayer.getLayers().length === TOP_BEACHES.length, 'Warstwa top powinna mieć wszystkie znaczniki');
+      console.assert(typeof secretLayer.getLayers === 'function' && secretLayer.getLayers().length === SECRET_BEACHES.length, 'Warstwa secret powinna mieć wszystkie znaczniki');
+      console.log('Mapa gotowa ✔️');
+    } catch (err) {
+      console.error('Błąd inicjalizacji mapy:', err);
+      const hint = document.createElement('div');
+      hint.style.cssText = 'position:fixed;top:12px;left:12px;background:#fee;border:1px solid #fbb;border-radius:8px;padding:10px 12px;z-index:99999;font:14px system-ui';
+      hint.innerHTML = '<b>Nie udało się załadować mapy.</b><br>Spróbuj odświeżyć stronę lub sprawdź, czy GitHub Pages nie blokuje połączenia z CDN.';
+      document.body.appendChild(hint);
     }
-    function commonsPage(fileName) {
-      return `https://commons.wikimedia.org/wiki/File:${encodeURIComponent(fileName)}`;
-    }
-    function buildPopupHTML(b) {
-      const tips = (b.tips || []).map(t => `<li>${t}</li>`).join('');
-      return `
-        <div class="popup" style="width:320px;">
-          <h4>${b.name}</h4>
-          <a href="${commonsPage(b.commons)}" target="_blank" rel="noopener">
-            <img src="${b.img}" alt="${b.name}" referrerpolicy="no-referrer" loading="eager">
-          </a>
-          <p><b>Dojazd / dojście:</b> ${b.access}</p>
-          <p><b>Parking:</b> ${b.parking}</p>
-          <p><b>Ważne wskazówki:</b></p>
-          <ul>${tips}</ul>
-          <div class="btns">
-            <a class="commons" href="${commonsPage(b.commons)}" target="_blank" rel="noopener">Strona zdjęcia (Wikimedia)</a>
-            <a href="${gmapsLink(b.coords)}" target="_blank" rel="noopener">Nawiguj w Google Maps</a>
-          </div>
-        </div>`;
-    }
-
-    // Warstwy
-    const topLayer = L.layerGroup();
-    const secretLayer = L.layerGroup();
-
-    // Dodaj znaczniki (top)
-    TOP_BEACHES.forEach(b => {
-      const marker = L.marker(b.coords, { icon: topIcon }).bindPopup(buildPopupHTML(b));
-      marker.addTo(topLayer);
-    });
-
-    // Dodaj znaczniki (sekretne)
-    SECRET_BEACHES.forEach(b => {
-      const marker = L.marker(b.coords, { icon: secretIcon }).bindPopup(buildPopupHTML(b));
-      marker.addTo(secretLayer);
-    });
-
-    // Domyślne warstwy na mapie
-    topLayer.addTo(map);
-    secretLayer.addTo(map);
-
-    // Kontrolka warstw
-    L.control.layers(null, {
-      'Top plaże (klasyki)': topLayer,
-      'Sekretne/ukryte plaże': secretLayer
-    }, { collapsed: false }).addTo(map);
-
-    // Dopasuj widok do wszystkich znaczników
-    const allCoords = [...TOP_BEACHES, ...SECRET_BEACHES].map(b => b.coords);
-    const bounds = L.latLngBounds(allCoords);
-    map.fitBounds(bounds, { padding: [30, 30] });
+  })();
   </script>
 </body>
 </html>
