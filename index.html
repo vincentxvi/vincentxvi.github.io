@@ -4,17 +4,14 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Najlepsze plaże Teneryfy — interaktywna mapa</title>
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self' https: data: blob:; img-src 'self' https: data: blob:; style-src 'self' 'unsafe-inline' https:; script-src 'self' 'unsafe-inline' https:; connect-src https:; font-src https: data:;"/>
+  <!-- Prostsze i bardziej odporne ładowanie Leaflet: statyczne <link>/<script> + runtime fallback -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="anonymous" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin="anonymous" defer></script>
 
   <style>
     html, body { height: 100%; margin: 0; }
     #map { height: 100vh; width: 100vw; }
-    .legend {
-      position: fixed; bottom: 20px; left: 20px; z-index: 9999;
-      background: white; border: 1px solid #bbb; border-radius: 8px;
-      padding: 10px 12px; font: 14px/1.4 system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
-      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
-    }
+    .legend { position: fixed; bottom: 20px; left: 20px; z-index: 9999; background: white; border: 1px solid #bbb; border-radius: 8px; padding: 10px 12px; font: 14px/1.4 system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
     .legend .row { display: flex; align-items: center; gap: 8px; margin: 4px 0; }
     .popup img { width: 100%; height: auto; border-radius: 8px; display: block; margin: 6px 0 8px; }
     .popup h4 { margin: 0 0 6px; font-size: 16px; }
@@ -23,103 +20,58 @@
     .btns { display: flex; gap: 8px; flex-wrap: wrap; }
     .btns a { text-decoration: none; padding: 6px 10px; border-radius: 6px; border: 1px solid #1a73e8; font-size: 13px; }
     .btns a.commons { border-color: #0f766e; }
+    .error-hint { position:fixed;top:12px;left:12px;background:#fee;border:1px solid #fbb;border-radius:8px;padding:10px 12px;z-index:99999;font:14px system-ui }
   </style>
 </head>
 <body>
   <div id="map" role="region" aria-label="Mapa najlepszych plaż Teneryfy"></div>
   <div class="legend" aria-live="polite">
     <div><b>Legenda</b></div>
-    <div class="row"><span class="fa-solid fa-umbrella"></span> Top plaże (klasyki)</div>
-    <div class="row"><span class="fa-solid fa-star"></span> Sekretne/ukryte plaże</div>
+    <div class="row">🔵 Top plaże (klasyki)</div>
+    <div class="row">🟢 Sekretne/ukryte plaże</div>
     <div style="font-size:12px;color:#555;">Kliknij zdjęcie, aby otworzyć stronę pliku na Wikimedia Commons.</div>
   </div>
 
   <script>
   (async function bootstrap() {
-    // -------- Robust loader with multi-CDN fallbacks --------
-    const CDN = {
-      leafletCss: [
-        'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css',
-        'https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css',
-        'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.css'
-      ],
-      leafletJs: [
-        'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js',
-        'https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js',
-        'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js'
-      ],
-      faCss: [
-        'https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css',
-        'https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.5.0/css/all.min.css'
-      ],
-      awesomeMarkersCss: [
-        'https://cdnjs.cloudflare.com/ajax/libs/Leaflet.awesome-markers/2.0.4/leaflet.awesome-markers.css'
-      ],
-      awesomeMarkersJs: [
-        'https://cdnjs.cloudflare.com/ajax/libs/Leaflet.awesome-markers/2.0.4/leaflet.awesome-markers.js'
-      ]
-    };
+    // 1) Jeżeli z jakiegoś powodu Leaflet się nie załadował z unpkg, doładuj z fallbacków
+    function loadScript(src){return new Promise((res,rej)=>{const s=document.createElement('script');s.src=src;s.defer=true;s.onload=res;s.onerror=()=>rej(new Error('Nie udało się załadować '+src));document.head.appendChild(s);});}
+    function loadCss(href){return new Promise((res)=>{const l=document.createElement('link');l.rel='stylesheet';l.href=href;l.onload=res;l.onerror=res;document.head.appendChild(l);});}
 
-    function loadStylesheetSequential(urls) {
-      return new Promise((resolve) => {
-        const tryNext = (i) => {
-          if (i >= urls.length) return resolve();
-          const link = document.createElement('link');
-          link.rel = 'stylesheet';
-          link.href = urls[i];
-          link.onload = () => resolve();
-          link.onerror = () => tryNext(i + 1);
-          document.head.appendChild(link);
-        };
-        tryNext(0);
-      });
+    if(!window.L){
+      await loadCss('https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css');
+      try { await loadScript('https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js'); } catch(e){
+        await loadCss('https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.css');
+        await loadScript('https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js');
+      }
     }
 
-    function loadScriptSequential(urls) {
-      return new Promise((resolve, reject) => {
-        const tryNext = (i) => {
-          if (i >= urls.length) return reject(new Error('Nie udało się załadować skryptu z żadnego CDN.'));
-          const s = document.createElement('script');
-          s.src = urls[i];
-          s.async = false; // zachowaj kolejność
-          s.onload = () => resolve();
-          s.onerror = () => {
-            console.warn('Błąd ładowania:', urls[i]);
-            tryNext(i + 1);
-          };
-          document.head.appendChild(s);
-        };
-        tryNext(0);
-      });
+    if(!window.L){
+      const hint=document.createElement('div');
+      hint.className='error-hint';
+      hint.innerHTML='<b>Nie udało się załadować Leaflet.</b><br>Odśwież stronę lub sprawdź blokady sieci/CDN.';
+      document.body.appendChild(hint);
+      return;
     }
 
     try {
-      // 1) CSS: Leaflet + Font Awesome + AwesomeMarkers
-      await loadStylesheetSequential(CDN.leafletCss);
-      await loadStylesheetSequential(CDN.faCss);
-      await loadStylesheetSequential(CDN.awesomeMarkersCss);
-
-      // 2) JS: Leaflet -> AwesomeMarkers (zachowaj kolejność)
-      await loadScriptSequential(CDN.leafletJs);
-      if (!window.L) throw new Error('Leaflet nie został załadowany — L jest undefined');
-      await loadScriptSequential(CDN.awesomeMarkersJs);
-
-      // --------- TESTY (proste asercje w konsoli) ---------
-      console.assert(typeof L === 'object', 'Leaflet L powinno być obiektem');
-      console.assert(typeof L.map === 'function', 'L.map powinno być funkcją');
-
-      // --------- Inicjalizacja mapy ---------
+      // 2) Inicjalizacja mapy
       const map = L.map('map', { zoomControl: true }).setView([28.30, -16.60], 10);
-      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        maxZoom: 19,
-        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
-      }).addTo(map);
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '&copy; OpenStreetMap' }).addTo(map);
 
-      // Ikony
-      const topIcon = L.AwesomeMarkers.icon({ icon: 'umbrella-beach', prefix: 'fa', markerColor: 'blue' });
-      const secretIcon = L.AwesomeMarkers.icon({ icon: 'star', prefix: 'fa', markerColor: 'green' });
+      // 3) Ikony markerów (bez AwesomeMarkers, 100% kompatybilne):
+      const BlueIcon = new L.Icon({
+        iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-blue.png',
+        shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-shadow.png',
+        iconSize: [25, 41], iconAnchor: [12, 41], popupAnchor: [1, -34], shadowSize: [41, 41]
+      });
+      const GreenIcon = new L.Icon({
+        iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-green.png',
+        shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-shadow.png',
+        iconSize: [25, 41], iconAnchor: [12, 41], popupAnchor: [1, -34], shadowSize: [41, 41]
+      });
 
-      // Dane plaż
+      // 4) Dane plaż
       const TOP_BEACHES = [
         { name: 'Playa de Las Teresitas', coords: [28.5079, -16.1870], img: 'https://upload.wikimedia.org/wikipedia/commons/1/1e/Playa_de_Las_Teresitas_2015.jpg', commons: 'Playa_de_Las_Teresitas_2015.jpg', access: 'Dojazd łatwy, 10–15 min od Santa Cruz. Autobus TITSA 910 (San Andrés).', parking: 'Duży, bezpłatny parking wzdłuż plaży; w weekendy tłoczno.', tips: ['Zwykle są ratownicy i prysznice.', 'Mało cienia – weź parasol/krem SPF.', 'Falochrony = spokojna woda dla rodzin.', 'W weekendy przyjedź wcześnie (miejsca się zapełniają).'] },
         { name: 'Playa de la Tejita', coords: [28.0405, -16.5415], img: 'https://upload.wikimedia.org/wikipedia/commons/7/77/La_Tejita_beach_-_Montana_Roja_2.jpg', commons: 'La_Tejita_beach_-_Montana_Roja_2.jpg', access: 'Krótkie dojście z El Médano/Montańa Roja (5–10 min).', parking: 'Nieutwardzone place, bywa piaszczyście i wietrznie.', tips: ['Silny wiatr – świetna na kite/surf, mniej dla małych dzieci.', 'Brak stałego cienia i ograniczona infrastruktura.', 'Strefy naturystyczne bliżej Montaña Roja.', 'Uwaga na pył/piasek przy mocnym wietrze.'] },
@@ -157,8 +109,8 @@
       const topLayer = L.layerGroup();
       const secretLayer = L.layerGroup();
 
-      TOP_BEACHES.forEach(b => L.marker(b.coords, { icon: topIcon }).bindPopup(buildPopupHTML(b)).addTo(topLayer));
-      SECRET_BEACHES.forEach(b => L.marker(b.coords, { icon: secretIcon }).bindPopup(buildPopupHTML(b)).addTo(secretLayer));
+      TOP_BEACHES.forEach(b => L.marker(b.coords, { icon: BlueIcon }).bindPopup(buildPopupHTML(b)).addTo(topLayer));
+      SECRET_BEACHES.forEach(b => L.marker(b.coords, { icon: GreenIcon }).bindPopup(buildPopupHTML(b)).addTo(secretLayer));
 
       topLayer.addTo(map);
       secretLayer.addTo(map);
@@ -169,16 +121,16 @@
       const bounds = L.latLngBounds(allCoords);
       map.fitBounds(bounds, { padding: [30, 30] });
 
-      // --------- Proste testy E2E (logi) ---------
+      // Proste testy w konsoli
       console.assert(map instanceof L.Map, 'Instancja mapy powinna być L.Map');
-      console.assert(typeof topLayer.getLayers === 'function' && topLayer.getLayers().length === TOP_BEACHES.length, 'Warstwa top powinna mieć wszystkie znaczniki');
-      console.assert(typeof secretLayer.getLayers === 'function' && secretLayer.getLayers().length === SECRET_BEACHES.length, 'Warstwa secret powinna mieć wszystkie znaczniki');
+      console.assert(topLayer.getLayers().length === TOP_BEACHES.length, 'Warstwa top powinna mieć wszystkie znaczniki');
+      console.assert(secretLayer.getLayers().length === SECRET_BEACHES.length, 'Warstwa secret powinna mieć wszystkie znaczniki');
       console.log('Mapa gotowa ✔️');
     } catch (err) {
       console.error('Błąd inicjalizacji mapy:', err);
-      const hint = document.createElement('div');
-      hint.style.cssText = 'position:fixed;top:12px;left:12px;background:#fee;border:1px solid #fbb;border-radius:8px;padding:10px 12px;z-index:99999;font:14px system-ui';
-      hint.innerHTML = '<b>Nie udało się załadować mapy.</b><br>Spróbuj odświeżyć stronę lub sprawdź, czy GitHub Pages nie blokuje połączenia z CDN.';
+      const hint=document.createElement('div');
+      hint.className='error-hint';
+      hint.innerHTML='<b>Nie udało się zainicjować mapy.</b><br>Sprawdź, czy przeglądarka nie blokuje skryptów z CDN (unpkg/jsDelivr/cdnjs).';
       document.body.appendChild(hint);
     }
   })();
