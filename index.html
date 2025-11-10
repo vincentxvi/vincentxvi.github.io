@@ -4,7 +4,10 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Najlepsze plaże Teneryfy — interaktywna mapa</title>
-  <!-- Wersja: Wikipedia-driven images (EN). Obrazy są pobierane runtime z REST API angielskiej Wikipedii. -->
+  <!-- Minimal, robust setup: load Leaflet from a known-good CDN, then fall back if needed. -->
+  <link id="leaflet-css" rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="anonymous" />
+  <script id="leaflet-js" src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin="anonymous" defer></script>
+
   <style>
     html, body { height: 100%; margin: 0; }
     #map { height: 100vh; width: 100vw; }
@@ -27,86 +30,55 @@
     <div><b>Legenda</b></div>
     <div class="row">🔵 Top plaże (klasyki)</div>
     <div class="row">🟢 Sekretne/ukryte plaże</div>
-    <div style="font-size:12px;color:#555;">Kliknij zdjęcie, aby otworzyć stronę pliku na Wikimedia Commons.</div>
+    <div style="font-size:12px;color:#555;">Kliknij zdjęcie, aby otworzyć artykuł na angielskiej Wikipedii.</div>
   </div>
   <div class="diag" id="diag">
-    <div><b>Status ładowania</b></div>
+    <div><b>Status</b></div>
     <div id="status-leaflet">Leaflet: <span class="warn">oczekiwanie…</span></div>
     <div id="status-tiles">Kafelki OSM: <span class="warn">oczekiwanie…</span></div>
-    <div id="status-markers">Markery: <span class="warn">oczekiwanie…</span></div>
+    <div id="status-markers">Markery/obrazy: <span class="warn">oczekiwanie…</span></div>
   </div>
 
   <script>
   (async function bootstrap() {
+    // ---- Diagnostic helpers ----
     const diag = {
       leaflet: document.getElementById('status-leaflet'),
       tiles: document.getElementById('status-tiles'),
-      markers: document.getElementById('status-markers'),
-      set(el, cls, msg){ el.innerHTML = `${el.firstChild ? el.firstChild.textContent : el.textContent} <span class="${cls}">${msg}</span>`; }
+      markers: document.getElementById('status-markers')
     };
+    const setLeafletStatus = (cls, msg) => diag.leaflet.innerHTML = `Leaflet: <span class="${cls}">${msg}</span>`;
+    const setTilesStatus   = (cls, msg) => diag.tiles.innerHTML   = `Kafelki OSM: <span class="${cls}">${msg}</span>`;
+    const setMarkersStatus = (cls, msg) => diag.markers.innerHTML = `Markery/obrazy: <span class="${cls}">${msg}</span>`;
 
-    function setLeafletStatus(cls, msg){ diag.leaflet.innerHTML = `Leaflet: <span class="${cls}">${msg}</span>`; }
-    function setTilesStatus(cls, msg){ diag.tiles.innerHTML = `Kafelki OSM: <span class="${cls}">${msg}</span>`; }
-    function setMarkersStatus(cls, msg){ diag.markers.innerHTML = `Markery: <span class="${cls}">${msg}</span>`; }
-
-    const localCSS = '/vendor/leaflet/1.9.4/leaflet.css?v=1';
-    const localJS  = '/vendor/leaflet/1.9.4/leaflet.js?v=1';
-
-    const cdnCss = [
-      'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css',
-      'https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css',
-      'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.css'
-    ];
-    const cdnJs = [
-      'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js',
-      'https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js',
-      'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js'
-    ];
-
-    function loadCss(href){
-      return new Promise((resolve)=>{
-        const l = document.createElement('link');
-        l.rel = 'stylesheet'; l.href = href;
-        l.onload = () => resolve(true);
-        l.onerror = () => resolve(false);
-        document.head.appendChild(l);
-      });
-    }
-    function loadScript(src){
-      return new Promise((resolve)=>{
-        const s = document.createElement('script');
-        s.src = src; s.defer = true;
-        s.onload = () => resolve(true);
-        s.onerror = () => resolve(false);
-        document.head.appendChild(s);
-      });
-    }
-
-    async function loadLeaflet() {
-      // 1) próba lokalna
-      const okCssLocal = await loadCss(localCSS);
-      const okJsLocal  = await loadScript(localJS);
-      await new Promise(r => setTimeout(r, 100));
-      if (window.L) return 'local';
-      // 2) fallback po CDN-ach
-      for (let i=0; i<cdnCss.length; i++) {
-        await loadCss(cdnCss[i] + `?v=${Date.now()}`);
-        const ok = await loadScript(cdnJs[i] + `?v=${Date.now()}`);
-        await new Promise(r => setTimeout(r, 100));
-        if (window.L) return `cdn:${i}`;
+    // ---- Load Leaflet with fallback if needed ----
+    async function ensureLeafletLoaded() {
+      if (window.L && typeof L.map === 'function') return true;
+      // If primary CDN failed (blocked/mis-cached), try jsDelivr then cdnjs
+      const fallbackJs = [
+        'https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js',
+        'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js'
+      ];
+      const fallbackCss = [
+        'https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css',
+        'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.css'
+      ];
+      for (let i=0;i<fallbackJs.length;i++) {
+        await new Promise(r => setTimeout(r, 150));
+        if (window.L && typeof L.map === 'function') return true;
+        const l = document.createElement('link'); l.rel = 'stylesheet'; l.href = fallbackCss[i]; document.head.appendChild(l);
+        const s = document.createElement('script'); s.src = fallbackJs[i]; s.defer = true; document.head.appendChild(s);
+        await new Promise(r => setTimeout(r, 600));
       }
-      return null;
+      return (window.L && typeof L.map === 'function');
     }
 
-    const source = await loadLeaflet();
-    if (!source) {
-      setLeafletStatus('err', 'błąd — Leaflet nie został załadowany (lokalnie ani z CDN)');
-      return;
-    } else {
-      setLeafletStatus('ok', `załadowano (${source})`);
-    }
+    const okLeaflet = await ensureLeafletLoaded();
+    if (!okLeaflet) { setLeafletStatus('err', 'błąd — nie udało się załadować Leaflet'); return; }
+    setLeafletStatus('ok', 'załadowano');
 
     try {
+      // ---- Map init ----
       const map = L.map('map', { zoomControl: true }).setView([28.30, -16.60], 10);
       const tiles = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
         maxZoom: 19,
@@ -116,7 +88,7 @@
       tiles.on('tileerror', () => setTilesStatus('err', 'błąd (kafelki niedostępne)'));
       tiles.addTo(map);
 
-      // Ikony PNG (brak AwesomeMarkers — 100% kompatybilność):
+      // ---- Marker icons (no external plugins) ----
       const BlueIcon = new L.Icon({
         iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-blue.png',
         shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-shadow.png',
@@ -128,6 +100,7 @@
         iconSize: [25, 41], iconAnchor: [12, 41], popupAnchor: [1, -34], shadowSize: [41, 41]
       });
 
+      // ---- Data (with EN Wikipedia page titles for images & links) ----
       const TOP_BEACHES = [
         { name: 'Playa de Las Teresitas', wiki: 'Playa_de_Las_Teresitas', coords: [28.5079, -16.1870], access: 'Easy access, 10–15 min from Santa Cruz. Bus TITSA 910 (San Andrés).', parking: 'Large free parking along the beach; busy on weekends.', tips: ['Lifeguards and showers usually present.', 'Little shade — bring umbrella/SPF.', 'Breakwaters = calm water for families.', 'Arrive early on weekends.'] },
         { name: 'Playa de la Tejita', wiki: 'Montaña_Roja,_Tenerife', coords: [28.0405, -16.5415], access: 'Short walk from El Médano/Montaña Roja (5–10 min).', parking: 'Unpaved areas; windy and sandy.', tips: ['Strong wind — great for kite/surf, less for toddlers.', 'Limited infrastructure & no permanent shade.', 'Naturist zones closer to Montaña Roja.', 'Mind sand/dust on windy days.'] },
@@ -141,11 +114,12 @@
         { name: 'Playa de Abama', wiki: 'Guía_de_Isora', coords: [28.1408, -16.8072], access: 'Through the Abama complex; footpath or elevator (not always operating).', parking: 'Along the access road and lay-bys; limited.', tips: ['Sheltered cove — good for kids.', 'Crowded in season — arrive early.', 'South wind can bring small waves — watch kids.', 'Cafe & toilets usually up by the elevator.'] }
       ];
 
-      function gmapsLink([lat, lon]) { return `https://www.google.com/maps/search/?api=1&query=${lat},${lon}`; }
-      function commonsPage(fileName) { return `https://commons.wikimedia.org/wiki/File:${encodeURIComponent(fileName)}`; }
+      // ---- Helpers ----
+      const gmapsLink = ([lat, lon]) => `https://www.google.com/maps/search/?api=1&query=${lat},${lon}`;
+      const wikiArticle = (title) => `https://en.wikipedia.org/wiki/${encodeURIComponent(title)}`;
       function buildPopupHTML(b, imgSrc) {
         const tips = (b.tips || []).map(t => `<li>${t}</li>`).join('');
-        const wikiUrl = `https://en.wikipedia.org/wiki/${encodeURIComponent(b.wiki)}`;
+        const wikiUrl = wikiArticle(b.wiki);
         const imgHtml = imgSrc ? `<img src="${imgSrc}" alt="${b.name}" loading="eager">` : `<div style="height:180px;border-radius:8px;background:#e2e8f0;display:flex;align-items:center;justify-content:center;">No image</div>`;
         return `
           <div class="popup" style="width:320px;">
@@ -157,35 +131,13 @@
             <ul>${tips}</ul>
             <div class="btns">
               <a class="wiki" href="${wikiUrl}" target="_blank" rel="noopener">Wikipedia (EN)</a>
-              <a href="https://www.google.com/maps/search/?api=1&query=${b.coords[0]},${b.coords[1]}" target="_blank" rel="noopener">Open in Google Maps</a>
-            </div>
-          </div>`;
-      }</li>`).join('');
-        return `
-          <div class="popup" style="width:320px;">
-            <h4>${b.name}</h4>
-            <a href="${commonsPage(b.commons)}" target="_blank" rel="noopener">
-              <img src="${b.img}" alt="${b.name}" referrerpolicy="no-referrer" loading="eager">
-            </a>
-            <p><b>Dojazd / dojście:</b> ${b.access}</p>
-            <p><b>Parking:</b> ${b.parking}</p>
-            <p><b>Ważne wskazówki:</b></p>
-            <ul>${tips}</ul>
-            <div class="btns">
-              <a class="commons" href="${commonsPage(b.commons)}" target="_blank" rel="noopener">Strona zdjęcia (Wikimedia)</a>
-              <a href="${gmapsLink(b.coords)}" target="_blank" rel="noopener">Nawiguj w Google Maps</a>
+              <a href="${gmapsLink(b.coords)}" target="_blank" rel="noopener">Open in Google Maps</a>
             </div>
           </div>`;
       }
 
-      const topLayer = L.layerGroup();
-      const secretLayer = L.layerGroup();
-
-      TOP_BEACHES.forEach(b => L.marker(b.coords, { icon: BlueIcon }).bindPopup(buildPopupHTML(b)).addTo(topLayer));
-      SECRET_BEACHES.forEach(b => L.marker(b.coords, { icon: GreenIcon }).bindPopup(buildPopupHTML(b)).addTo(secretLayer));
-
-      // Preload Wikipedia images via REST API (EN)
-      async function fetchWikiImage(title) {
+      // ---- Image fetching (Wikipedia first, then Wikimedia Commons) ----
+      async function fetchFromWikipediaSummary(title) {
         try {
           const resp = await fetch(`https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(title)}`);
           if (!resp.ok) return null;
@@ -193,25 +145,79 @@
           return (data.originalimage && data.originalimage.source) || (data.thumbnail && data.thumbnail.source) || null;
         } catch { return null; }
       }
+      async function fetchFromWikipediaMediaList(title) {
+        try {
+          const resp = await fetch(`https://en.wikipedia.org/api/rest_v1/page/media-list/${encodeURIComponent(title)}`);
+          if (!resp.ok) return null;
+          const data = await resp.json();
+          if (!data || !Array.isArray(data.items)) return null;
+          const imgItem = data.items.find(it => it.type === 'image' && (it.srcset?.length || it.src));
+          if (!imgItem) return null;
+          // Prefer largest srcset
+          if (Array.isArray(imgItem.srcset) && imgItem.srcset.length) {
+            const sorted = [...imgItem.srcset].sort((a,b)=> (b.scale||0) - (a.scale||0));
+            return sorted[0].src || imgItem.srcset[0].src;
+          }
+          return imgItem.src || null;
+        } catch { return null; }
+      }
+      async function fetchFromCommonsSearch(query) {
+        try {
+          const resp = await fetch(`https://commons.wikimedia.org/w/api.php?action=query&format=json&origin=*&generator=search&gsrnamespace=6&gsrlimit=5&gsrsearch=${encodeURIComponent(query)}&prop=imageinfo&iiprop=url&iiurlwidth=1200`);
+          if (!resp.ok) return null;
+          const data = await resp.json();
+          const pages = data?.query?.pages;
+          if (!pages) return null;
+          const first = Object.values(pages).find(p => Array.isArray(p.imageinfo) && p.imageinfo.length);
+          return first?.imageinfo?.[0]?.thumburl || first?.imageinfo?.[0]?.url || null;
+        } catch { return null; }
+      }
+      async function fetchBestImage(title) {
+        // Try Wikipedia article first
+        let img = await fetchFromWikipediaSummary(title);
+        if (img) return { url: img, source: 'wikipedia:summary' };
+        img = await fetchFromWikipediaMediaList(title);
+        if (img) return { url: img, source: 'wikipedia:media-list' };
+        // Fallback to Wikimedia Commons search using human-readable query
+        const query = title.replace(/_/g,' ');
+        img = await fetchFromCommonsSearch(query);
+        if (img) return { url: img, source: 'commons:search' };
+        return { url: null, source: 'none' };
+      }
 
-      // Fetch images for all and then render markers
+      // Preload images for all entries
       const all = [...TOP_BEACHES, ...SECRET_BEACHES];
-      const imgCache = {};
-      await Promise.all(all.map(async (b) => { imgCache[b.name] = await fetchWikiImage(b.wiki); }));
+      const imgCache = {}; const imgSource = {};
+      let wikiResolved = 0, commonsResolved = 0, missing = 0;
+      await Promise.all(all.map(async (b) => {
+        const res = await fetchBestImage(b.wiki);
+        imgCache[b.name] = res.url; imgSource[b.name] = res.source;
+        if (res.source.startsWith('wikipedia')) wikiResolved++;
+        else if (res.source.startsWith('commons')) commonsResolved++;
+        else missing++;
+      }));
 
-      TOP_BEACHES.forEach(b => L.marker(b.coords, { icon: BlueIcon }).bindPopup(buildPopupHTML(b, imgCache[b.name])).addTo(topLayer));
+      // Layers
+      const topLayer = L.layerGroup();
+      const secretLayer = L.layerGroup();
+      TOP_BEACHES.forEach(b => L.marker(b.coords, { icon: BlueIcon  }).bindPopup(buildPopupHTML(b, imgCache[b.name])).addTo(topLayer));
       SECRET_BEACHES.forEach(b => L.marker(b.coords, { icon: GreenIcon }).bindPopup(buildPopupHTML(b, imgCache[b.name])).addTo(secretLayer));
-
       topLayer.addTo(map);
       secretLayer.addTo(map);
-
       L.control.layers(null, { 'Top plaże (klasyki)': topLayer, 'Sekretne/ukryte plaże': secretLayer }, { collapsed: false }).addTo(map);
 
-      const allCoords = all.map(b => b.coords);
-      const bounds = L.latLngBounds(allCoords);
+      // Fit bounds
+      const bounds = L.latLngBounds(all.map(b => b.coords));
       map.fitBounds(bounds, { padding: [30, 30] });
 
-      setMarkersStatus('ok', 'OK');
+      // ---- Simple runtime tests ("test cases") ----
+      console.assert(map instanceof L.Map, 'Map should be instance of L.Map');
+      console.assert(topLayer.getLayers().length === TOP_BEACHES.length, 'Top layer marker count mismatch');
+      console.assert(secretLayer.getLayers().length === SECRET_BEACHES.length, 'Secret layer marker count mismatch');
+      const loadedImages = Object.values(imgCache).filter(Boolean).length;
+      console.assert(loadedImages >= 3, 'At least 3 Wikipedia images should be resolved');
+      console.log('Diagnostics:', { loadedImages, total: all.length });
+      setMarkersStatus('ok', `OK (images total: ${Object.values(imgCache).filter(Boolean).length}/${all.length}; wiki: ${wikiResolved}, commons: ${commonsResolved}, missing: ${missing})`);
     } catch (err) {
       console.error('Błąd inicjalizacji mapy:', err);
       setMarkersStatus('err', 'błąd inicjalizacji');
